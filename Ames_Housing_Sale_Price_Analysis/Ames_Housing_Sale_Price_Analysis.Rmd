@@ -1,0 +1,365 @@
+---
+title: "Ames Housing Sale Price Analysis"
+author: "Olivier Zephir"
+date: "2026-09-17"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+
+---
+
+
+---
+
+```{r setup, include= FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  error   = TRUE,
+  fig.width  = 8,
+  fig.height = 5,
+  comment = "   "
+)
+```
+
+---
+
+# Introduction
+
+
+This project examines how Overall Quality, Above-Ground Living Area, Total Basement Square Footage, Garage Capacity, and Year Built are related to log-transformed home sale prices in the Ames housing dataset. Multiple linear regression is used to examine these relationships while accounting for the other characteristics included in the model.
+
+The main goal is to determine how these housing characteristics are associated with differences in sale prices and to identify which characteristics show the strongest relationships. Understanding these relationships can provide useful insight into how observable features of a home are connected to its market value and may be useful when evaluating residential properties.
+
+
+```{r libraries, include = FALSE}
+#1. Setup
+
+if (FALSE) {
+  install.packages('readxl')
+  install.packages('devtools')
+  install.packages('car')
+  install.packages('magrittr')
+  install.packages('lattice')
+  install.packages('latticeExtra')
+  install.packages('nlme')
+  install.packages('ggplot2')
+  install.packages('dplyr')
+  devtools::install_github('gmonette/spida2')
+}
+
+library(spida2)
+library(readxl)
+library(car)
+library(magrittr)
+library(lattice)
+library(latticeExtra)
+library(nlme)
+library(ggplot2)
+library(dplyr)
+```
+
+
+
+```{r import, include=FALSE}
+hsdata <- read.csv("Data/AmesHousing_engineered.csv")
+dim(hsdata)
+```
+#Data Overview
+
+The data comes from a preprocessed and feature-engineered version of the Ames Housing dataset obtained through Kaggle. The dataset contains information on homes sold in Ames, Iowa, including characteristics such as sale price, overall quality, living area, basement size, garage capacity, and year built.
+
+According to the dataset documentation, preprocessing steps such as missing-value handling, feature transformation, outlier removal, and scaling were performed before the data were made available. The specific file used in this analysis contains 2,752 observations and 251 variables. Log_SalePrice was already provided as the target variable, and several predictors were provided in scaled form.
+
+For this project, I focus on a smaller set of variables that may be associated with differences in home sale prices.
+
+## Key Variables
+
+Log Sale Price (`Log_SalePrice`): The logarithm of the home's sale price.
+
+Overall Quality (`Overall_Qual`): A rating of the overall quality of the home, ranging from 1 (lowest quality) to 10 (highest quality).
+
+Above-Ground Living Area (`Gr_Liv_Area`): The total above-ground living area of the home, measured in square feet.
+
+Total Basement Square Footage (`Total_Bsmt_SF`): The total basement area of the home, measured in square feet.
+
+Garage Capacity (`Garage_Cars`): The number of cars that can fit in the garage, ranging from 0 to 4.
+
+Year Built (`Year_Built`): The year in which the home was constructed, ranging from 1872 to 2010.
+
+Using the logarithm of sale price can help reduce right-skewness and stabilize variance, which can make the response more suitable for linear regression.
+
+
+# Exploratory Data Analysis
+
+```{r correlation, include=FALSE}
+hsdatasmall<-subset(hsdata, select=c("Log_SalePrice","Overall_Qual","Gr_Liv_Area","Total_Bsmt_SF","Garage_Cars","Year_Built"))
+
+```
+
+```{r  echo=FALSE, fig.width=9, fig.height=7}
+xqplot(hsdatasmall)
+scatterplotMatrix(hsdatasmall, smooth=FALSE, diagonal="histogram", col=rgb(0,0,0,0.5), pch=19)
+cor(hsdatasmall, use="complete.obs")
+```
+
+The scatterplots and correlation matrix showed that log sale price was positively correlated with all five predictors. The strongest correlations were observed for Overall Quality (0.81) and Above-Ground Living Area (0.71), while Total Basement Square Footage had the weakest correlation with log sale price among the five predictors (0.605). Overall, these results suggest that each selected predictor had a positive linear association with log sale price when considered individually.
+
+The correlation matrix also showed moderate correlations among some of the predictors. In particular, Overall Quality was correlated with Garage Capacity (0.593) and Year Built (0.604). These relationships suggested that some multicollinearity could be present, so this was examined further using variance inflation factors (VIF) during the model diagnostics.
+
+Overall, the exploratory analysis showed positive relationships between each predictor and log sale price, while also indicating some correlation among the predictors themselves. To examine these relationships simultaneously, a multiple linear regression model was fitted using Overall Quality, Above-Ground Living Area, Total Basement Square Footage, Garage Capacity, and Year Built. This allowed the association between each predictor and log sale price to be estimated while controlling for the other predictors in the model.
+
+# Regression Modeling
+
+``` {r model fitting}
+model2fact<- lm(Log_SalePrice~ factor(Overall_Qual)+Gr_Liv_Area+
+                  Total_Bsmt_SF+factor(Garage_Cars)+Year_Built, hsdata) # Full Factor model
+
+model2numeric<- lm(Log_SalePrice~ Overall_Qual+Gr_Liv_Area+Total_Bsmt_SF
+            +Garage_Cars+Year_Built, hsdata) #Full numeric model.
+
+
+model2fact_reduced <- update(model2fact, . ~ . - Year_Built) # Full model excluding Year Built predictor.
+```
+``` {r summary, include=FALSE}
+summary(model2numeric)
+summary(model2fact)
+summary(model2fact_reduced)
+```
+
+
+
+Two versions of the multiple linear regression model were fitted. In the first, Overall Quality and Garage Capacity were treated as categorical predictors by converting them to factors. Although these variables were stored numerically in the preprocessed dataset, their values represent distinct categories: quality ratings for Overall Quality and garage capacities for Garage Capacity. Converting them into factors allows the model to estimate separate differences across their levels rather than assuming a linear relationship between each predictor and log sale price.
+
+In the second version, these variables were retained in numeric form, so their relationships with log sale price were modeled linearly. The two models were compared to determine which approach provided a better fit to the data.
+
+
+
+## Model Comparison
+
+```{r comparisons}
+
+AIC(model2numeric,model2fact) #Compare numeric model with Factor model.
+anova(model2numeric,model2fact)
+
+AIC(model2fact,model2fact_reduced) #Compare Full Factor model with full model excluding Year Built predictor.
+anova(model2fact_reduced,model2fact)
+```
+
+The two full regression models were compared using the Akaike Information Criterion (AIC). The model treating Overall Quality and Garage Capacity as categorical predictors had a lower AIC (-2699.42) than the model treating both variables as numeric predictors (-2627.39), despite being penalized for including more parameters. This suggests that allowing log sale price to differ across factor levels provided enough improvement in fit to justify the additional model complexity. Therefore, the factor model was chosen as the final model.
+
+An ANOVA comparison also showed a reduction in residual sum of squares from 61.71 in the numeric model to 59.63 in the factor model. This improvement was statistically significant, F(11, 2735) = 8.64, p < 0.001. The factor model also had a slightly higher adjusted (R^2) of 0.8425 compared with 0.8377 for the numeric model. Together, these results suggest that treating Overall Quality and Garage Capacity as categorical predictors provides a better representation of their relationships with log sale price than assuming a strictly linear effect.
+
+Because Year Built was moderately correlated with Overall Quality in the exploratory analysis, its contribution to the model was examined to determine whether it still provided additional information after accounting for the other predictors. The full factor model was compared with a reduced model that excluded Year Built. The full model had a substantially lower AIC (-2699.42) than the reduced model (-2316.21), while its (R^2) was also higher (0.8434 compared with 0.8199). An ANOVA comparison showed that adding Year Built reduced the residual sum of squares from 68.59 to 59.63, and this improvement was statistically significant, F(1, 2735) = 410.92, p < 0.001. These results suggest that Year Built contributes additional information about log sale price beyond the other predictors and support retaining it in the final model.
+
+## Added-Variable Plots
+
+Following the model comparisons, added-variable plots were examined to visualize the partial relationships between each continuous predictor and log sale price while controlling for the remaining predictors.
+
+
+``` {r AVP}
+avPlots(model2fact, terms = ~ Gr_Liv_Area + Total_Bsmt_SF + Year_Built, main="Added Variable Plots for Continuous Predictors")
+```
+
+The added-variable plots were used to visually examine the partial relationship between each continuous predictor and log sale price while controlling for the other predictors in the model. Overall Quality and Garage Capacity were not included because their effects are represented by differences between factor levels rather than by a single continuous linear relationship.
+
+Above-Ground Living Area, Total Basement Square Footage, and Year Built all showed positive slopes, suggesting positive partial relationships with log sale price after accounting for the other predictors in the model. In other words, higher values of these predictors were generally associated with higher log sale prices after controlling for the remaining predictors.
+
+# Model Diagnostics
+
+To assess the validity of the fitted regression model, several diagnostic checks were conducted. These were used to evaluate the assumptions of linear regression and to identify observations that may have a large influence on the model.
+
+
+
+``` {r Diagnostics- obs 2730 investigation, include= FALSE}
+table(hsdata$Overall_Qual)
+table(hsdata$Garage_Cars)
+
+hsdata[2730, c("Overall_Qual", "Garage_Cars",
+               "Gr_Liv_Area", "Total_Bsmt_SF",
+               "Year_Built", "Log_SalePrice")]
+
+hatvalues(model2fact)[2730]
+
+model2fact_no2730 <- lm(Log_SalePrice~ factor(Overall_Qual)+Gr_Liv_Area+Total_Bsmt_SF+factor(Garage_Cars)+Year_Built, hsdata[-2730,])
+summary(model2fact_no2730)
+compareCoefs(model2fact,model2fact_no2730)
+```
+
+
+Observation 2730 was found to have a leverage value of 1. Further investigation showed that it was the only observation in the lowest Overall Quality category, which was also the reference category in the original factor model. Since this category contained only one observation, the model was able to fit it exactly, resulting in its extreme leverage value.366
+
+To determine whether this observation was strongly affecting the model, the model was refitted without observation 2730. The coefficient estimates and standard errors for the other predictors remained mostly unchanged. The coefficients for Overall Quality changed because removing observation 2730 also removed the original reference category, causing another category to become the new reference. This suggests that the extreme leverage of observation 2730 was mainly caused by the sparsity of the lowest Overall Quality category rather than the observation having a large influence on the main regression results.
+
+``` {r Diagnostics obs, include=FALSE}
+
+cooks.distance(model2fact) |> sort(decreasing = TRUE) |> head(10)
+
+hatvalues(model2fact) |> sort(decreasing = TRUE) |> head(10)
+
+hsdata[c(701, 1246), c("Overall_Qual", "Garage_Cars", "Gr_Liv_Area", "Total_Bsmt_SF", "Year_Built", "Log_SalePrice")]
+
+model2fact_no701_1246 <- lm(
+  Log_SalePrice ~ factor(Overall_Qual) +
+    Gr_Liv_Area +
+    Total_Bsmt_SF +
+    factor(Garage_Cars) +
+    Year_Built,
+  data = hsdata[-c(701, 1246), ]
+)
+
+summary(model2fact_no701_1246)
+compareCoefs(model2fact,model2fact_no701_1246)
+```
+
+Observations 701 and 1246 were also identified as unusual in the Residuals vs. Leverage plot. Similar to observation 2730, both belonged to the second-lowest Overall Quality category, which contained only these two observations. Their leverage values were approximately 0.503, and they had the two largest Cook's distances in the model, at approximately 0.243.
+
+Similarly to observation 2730, the model was refitted without observations 701 and 1246. Removing these observations resulted in only minor changes to the coefficient estimates, standard errors, and overall model fit. This suggests that, although they had relatively high leverage and Cook's distance values, they did not substantially affect the model coefficients. Their unusual diagnostic values appear to be mainly related to the sparsity of the lower Overall Quality categories. Observation 2730 did not appear normally in the Residuals vs. Leverage plot because its leverage was exactly 1.
+
+``` {r}
+par(mfrow=c(2,2))
+plot(model2fact)
+```
+
+The Residuals vs. Fitted plot showed residuals scattered approximately randomly around zero, with no clear pattern. This suggests that the form of the model is reasonably appropriate and that there is no strong evidence of major nonlinearity. A few observations had relatively large negative residuals, including observations 1117, 1462, and 741, which were examined separately as possible outliers.
+
+The Scale-Location plot showed a slight downward trend in the red smoothing line as fitted values increased. This suggests that the residual variance may decrease somewhat as fitted values increase. Although the pattern was weak, it provides some evidence of mild heteroscedasticity.
+
+The Q–Q plot showed that most residuals followed the reference line reasonably well through the center of the distribution. However, some departures from normality were present in the tails, particularly in the lower tail, where several unusually large negative residuals were observed. Overall, the residual distribution appeared reasonably close to normal in the center, with some deviation in the extremes.
+
+``` {r VIF}
+vif(model2fact)
+```
+
+Variance inflation factors were used to assess multicollinearity among the predictors. Because Overall Quality and Garage Capacity were modeled as categorical variables with multiple degrees of freedom, adjusted generalized variance inflation factors were used for these predictors. All VIF and adjusted GVIF values were low, ranging from approximately 1.07 to 1.40. This suggests that multicollinearity was not a major concern in the fitted model.
+
+The model also assumes independence of errors. Each observation represents a separate home sale, so there is no obvious repeated-measures structure in the data. However, homes located in the same neighborhood or sold during similar time periods may share information and conditions that are not fully captured by the selected predictors. Since spatial and temporal dependence were not explicitly modeled, this remain a limitation of the analysis.
+
+``` {r outliers investigation, include=FALSE}
+
+sort(abs(rstudent(model2fact)), decreasing = TRUE)[1:10]
+
+outliers <- as.integer(
+  names(sort(abs(rstudent(model2fact)),
+             decreasing = TRUE)[1:10])
+)
+
+data.frame(
+  Observation = outliers,
+  Studentized_Residual = rstudent(model2fact)[outliers],
+  Leverage = hatvalues(model2fact)[outliers],
+  Cooks_D = cooks.distance(model2fact)[outliers]
+)
+
+hsdata[outliers, c("Log_SalePrice", "Overall_Qual", "Gr_Liv_Area", "Total_Bsmt_SF", "Garage_Cars", "Year_Built")]
+
+```
+
+
+Studentized residuals identified several observations with unusually large residuals, with absolute values ranging from approximately 4.16 to 6.50 among the ten most extreme cases. Most of these residuals were negative, indicating that the model overpredicted the sale prices of these homes. However, these observations generally had low leverage values and relatively small Cook's distances, suggesting that although they were poorly predicted, they did not have a large influence on the estimated coefficients. Since the values also did not show any obvious signs of data-entry errors, they were kept in the analysis. These observations also help explain the departure from the reference line in the lower tail of the Q–Q plot.
+
+Overall, the diagnostic results suggest that the fitted model is reasonably stable. No major problems were found with linearity or multicollinearity, and the high-leverage observations did not drastically change the main coefficient estimates when they were removed. Mild heteroscedasticity and departures from normality in the tails were present, along with several outliers, so these should be considered when interpreting the model results.
+
+# Model Selection
+
+``` {r change reference level, include=FALSE}
+
+hsdata$Overall_Qual_original <-
+  round(as.numeric(as.character(hsdata$Overall_Qual)) * 9 + 1)
+
+hsdata$Garage_Cars_original <-
+  round(as.numeric(as.character(hsdata$Garage_Cars)) * 4)
+
+hsdata$Overall_Qual_original <-
+  factor(hsdata$Overall_Qual_original)
+hsdata$Garage_Cars_original <-
+  factor(hsdata$Garage_Cars_original)
+
+table(hsdata$Overall_Qual, hsdata$Overall_Qual_original)
+```
+
+``` {r Final Model}
+
+hsdata$Overall_Qual_original <- relevel(factor(hsdata$Overall_Qual_original), ref = "10")
+
+hsdata$Garage_Cars_original <- relevel(factor(hsdata$Garage_Cars_original), ref = "2")
+
+model2fact_relevel<- lm(Log_SalePrice ~ Overall_Qual_original + Gr_Liv_Area + Total_Bsmt_SF + Garage_Cars_original + Year_Built,hsdata)
+
+summary(model2fact_relevel)
+```
+
+ ## Final model
+
+Log Sale Price = β0 + β1 * Overall_Qual + β2 * Gr_Liv_Area + β3 * Total_Bsmt_SF + β4 * Garage_Cars + β5 * Year_Built + ε
+
+where Overall Quality and Garage Capacity are treated as categorical predictors.
+
+## Model Summary
+
+The reference categories for Overall Quality and Garage Capacity were changed to make the results easier to interpret. Overall Quality was changed from 1 to 10 as the reference category, while Garage Capacity was changed from 0 to 2 cars. The original Overall Quality reference level contained only one observation, which made comparisons with that category less reliable and resulted in larger standard errors. Using 10 as the reference also makes the comparisons easier to understand because the other quality levels are compared with the highest-rated homes.
+
+The final model had an (R^2) of 0.8434 and an adjusted (R^2) of 0.8425, meaning that approximately 84% of the variability in log sale price was explained by the predictors in the model. The overall model was statistically significant, F(16,2735) = 920.7, p < 0.0001. The residual standard error was 0.1477.
+
+## Coefficient Interpretation
+
+Holding all other predictors constant, a 1% increase across the observed range of Above-Ground Living Area was associated with approximately a 0.76% increase in predicted sale price.
+
+Similarly, a 1% increase across the observed range of Total Basement Square Footage was associated with approximately a 0.51% increase in predicted sale price.
+
+Holding all other predictors constant, a one-year increase in Year Built was associated with approximately a 0.27% increase in predicted sale price.
+
+For Overall Quality, homes rated 9 were associated with approximately 10.4% lower predicted sale prices than homes rated 10. The estimated differences became larger for lower quality ratings. For example, homes rated 8 and 5 were associated with approximately 23.4% and 41.5% lower predicted sale prices, respectively, compared with homes rated 10. This suggests substantial differences in predicted sale price across Overall Quality categories.
+
+For Garage Capacity, homes with no garage were associated with approximately 14.6% lower predicted sale prices than homes with a two-car garage. Homes with a one-car garage were associated with approximately 4.4% lower predicted sale prices, while homes with a three-car garage were associated with approximately 6.4% higher predicted sale prices than homes with a two-car garage.
+
+## Wald Test
+
+``` {r joint test}
+wald(model2fact_relevel, "Overall_Qual")
+wald(model2fact_relevel, "Garage_Cars")
+```
+Wald test were used to jointly test for the significance of all factor levels of Overall Quality and Garage Cars. Overall Quality was statistically significant, F(9, 2735) = 99.24, p < 0.00001, indicating that the set of Overall Quality categories was significantly associated with log sale price after controlling for the other predictors.
+
+Garage Capacity was also jointly significant, F(4,2735) = 34.79, p < 0.00001. However, the estimated difference between four-car and two-car garages was not statistically significant (p = 0.118).
+
+```{r model-performance figure}
+plot(
+  fitted(model2fact_relevel),
+  hsdata$Log_SalePrice,
+  xlab = "Fitted Log Sale Price",
+  ylab = "Observed Log Sale Price",
+  main = "Observed vs. Fitted Log Sale Prices"
+)
+abline(0, 1, lty = 2)
+```
+
+The observed versus fitted plot was used to assess how well the model fits the observations. The plot shows that the model’s fitted log sale prices generally align closely with the observed values, with most observations clustering around the 45-degree reference line. Although some observations deviated, the plot suggests that the model provides a reasonably good in-sample fit.
+
+# Discussion
+
+The results suggest that housing quality and usable space are important factors associated with differences in sale prices. Overall Quality showed a clear pattern, with lower quality ratings generally being associated with lower predicted sale prices compared with the highest-rated homes. Above-Ground Living Area and Total Basement Square Footage were also positively associated with sale price after accounting for the other predictors. Garage Capacity and Year Built were also related to differences in sale price.
+
+The diagnostic analysis identified several limitations. The Scale-Location plot suggested mild heteroscedasticity, meaning that the residual variance was not completely constant across fitted values. Some of the lower Overall Quality and extreme Garage Capacity categories also had relatively few observations, resulting in sparse factor levels and less precise estimates for those categories. Several observations were also identified as having high leverage, large Cook's distances, or large studentized residuals. However, removing the most influential observations produced only small changes in the model estimates, suggesting that they were not strongly affecting the overall results.
+
+## Limitations
+
+Because this analysis is based on observational housing data, the results should be interpreted as associations rather than causal effects. The model also includes only a small number of the variables available in the dataset. Other omitted variables such as neighborhood, lot size, home condition, or renovation history may also be related to sale price and could partly explain some of the relationships observed in the model. In addition, the dataset was already cleaned and feature-engineered, with steps such as missing-value handling, transformation, scaling, and outlier removal performed before this analysis. These adjustments may have influenced the structure of the data and should therefore be considered when interpreting the results.
+
+The prior outlier-removal procedure is particularly relevant to the sparsity and influence findings in this analysis. Earlier, several of the more extreme levels of Overall Quality and Garage Capacity contained relatively few observations. Due to the missing observations that were removed from the data cleaning process, this may have also contributed to the small sample sizes observed in those categories, though the extent of this effect cannot be determined from the processed dataset alone, 
+Sparse categories can lead to less precise coefficient estimates and unusually high leverage, as seen in the diagnostics outlier investigation.
+
+Similarly, the Cook's distance, leverage, and studentized residual diagnostics performed in this analysis identify influential observations within the already cleaned dataset rather than within the original raw Ames Housing data. Several observations still showed relatively high leverage or large residuals despite the removal of outliers. However, removing those observations from the model indicated that removing the most influential ones only produced small changes in the main coefficient estimates, suggesting that the overall conclusions of the fitted model were not strongly dependent on those individual observations.
+
+The model also assumes that the errors are independent. Each observation represents a separate home sale, but homes sold in similar locations or time periods may share characteristics or market conditions that were not included in the model. Spatial or temporal dependence was not modeled, so this remains a limitation. In addition, the model was evaluated using the same data used to fit it. Therefore, the results mainly describe how well the model fits this sample and do not demonstrate how well it would generalize to new housing sales.
+
+# Conclusion
+
+This analysis found that Overall Quality, Above-Ground Living Area, Total Basement Square Footage, Garage Capacity, and Year Built were all significantly associated with log sale price after accounting for the other predictors in the model. Overall Quality showed a particularly strong pattern, with lower quality ratings associated with lower predicted sale prices. Above-Ground Living Area and Total Basement Square Footage were also positively associated with sale price.
+
+Garage Capacity was significantly associated with sale price overall. Compared with homes with a two-car garage, homes with no garage or a one-car garage had lower predicted sale prices, while homes with a three-car garage had higher predicted prices. The difference between four-car and two-car garages was not statistically significant. Newer homes also tended to have higher predicted sale prices after controlling for the other predictors.
+
+Overall, the results suggest that both housing quality and physical characteristics were associated with differences in sale prices within the preprocessed Ames Housing data. These findings should be interpreted as associations rather than causal effects and primarily describe the homes included in this sample. Because the dataset had already undergone preprocessing, the results should also be interpreted in that context rather than from raw data.
